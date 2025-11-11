@@ -1,14 +1,14 @@
 {
   "name": "barberia-backend",
-  "version": "1.0.0",
-  "description": "Sistema de turnos para barbería - PRODUCCIÓN",
+  "version": "2.0.0",
+  "description": "Sistema de turnos para barbería - PostgreSQL Render",
   "main": "app.js",
   "type": "commonjs",
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
     "init-db": "node scripts/initDB.js",
-    "railway-init": "npm run init-db && npm start"
+    "render-setup": "npm run init-db && npm start"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -19,12 +19,21 @@
     "helmet": "^6.1.5",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "mysql2": "^3.6.0"
+    "pg": "^8.11.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   },
   "engines": {
     "node": ">=16.0.0"
   },
-  "keywords": ["barberia", "turnos", "api", "production"],
+  "keywords": [
+    "barberia",
+    "postgresql",
+    "render",
+    "api",
+    "production"
+  ],
   "author": "Elite Developer",
   "license": "MIT"
 }

@@ -1,5 +1,6 @@
 const express = require('express');
 const { corsOptions, helmetConfig, apiLimiter, sanitizeInput } = require('./middleware/security');
+const path = require('path');
 require('dotenv').config();
 
 // Importar el script de inicialización
@@ -8,7 +9,7 @@ const { testConnection } = require('./config/database');
 
 const app = express();
 
-// === MIDDLEWARES DE SEGURIDAD MÁXIMA ===
+// === MIDDLEWARES DE SEGURIDAD ===
 app.use(helmetConfig);
 app.use(apiLimiter);
 app.use(sanitizeInput);
@@ -19,7 +20,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use((req, res, next) => {
   const allowedOrigins = process.env.ALLOWED_ORIGINS ? 
     process.env.ALLOWED_ORIGINS.split(',') : 
-    ['https://tu-app-barberia.netlify.app'];
+    ['http://localhost:5173', 'https://tu-frontend.netlify.app'];
   
   const origin = req.headers.origin;
   if (allowedOrigins.includes(origin)) {
@@ -37,20 +38,23 @@ app.use((req, res, next) => {
   next();
 });
 
+// Servir archivos estáticos (para imágenes subidas)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
 // Inicialización segura de base de datos
 let dbInitialized = false;
 let dbCheckAttempts = 0;
-const MAX_DB_ATTEMPTS = 5;
+const MAX_DB_ATTEMPTS = 3;
 
 const initializeDatabaseWithRetry = async () => {
   try {
-    console.log('🔄 Inicializando base de datos...');
+    console.log('🔄 Inicializando base de datos PostgreSQL...');
     await initializeDatabase();
     
     const dbConnected = await testConnection();
     if (dbConnected) {
       dbInitialized = true;
-      console.log('✅ Base de datos lista para PRODUCCIÓN');
+      console.log('✅ Base de datos PostgreSQL lista para PRODUCCIÓN');
     } else {
       throw new Error('Falló la verificación de conexión');
     }
@@ -59,16 +63,16 @@ const initializeDatabaseWithRetry = async () => {
     console.error(`❌ Intento ${dbCheckAttempts} fallido:`, error.message);
     
     if (dbCheckAttempts < MAX_DB_ATTEMPTS) {
-      console.log(`🔄 Reintentando en 10 segundos...`);
-      setTimeout(initializeDatabaseWithRetry, 10000);
+      console.log(`🔄 Reintentando en 5 segundos...`);
+      setTimeout(initializeDatabaseWithRetry, 5000);
     } else {
       console.error('💥 Máximo de intentos alcanzado. La aplicación puede no funcionar correctamente.');
     }
   }
 };
 
-// Inicializar al inicio
-initializeDatabaseWithRetry();
+// Inicializar al inicio (pero no bloquear el startup)
+setTimeout(initializeDatabaseWithRetry, 1000);
 
 // Routes
 app.use('/api/auth', require('./routes/auth'));
@@ -80,20 +84,22 @@ app.use('/api/appointments', require('./routes/appointments'));
 app.get('/api/health', (req, res) => {
   res.json({ 
     status: dbInitialized ? 'HEALTHY' : 'INITIALIZING',
-    message: 'Barbería Elite API - PRODUCCIÓN',
-    environment: process.env.NODE_ENV,
+    message: 'Barbería Elite API - RENDER PRODUCTION',
+    environment: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString(),
     database: dbInitialized ? 'CONNECTED' : 'CONNECTING',
-    uptime: process.uptime()
+    uptime: process.uptime(),
+    platform: 'Render.com'
   });
 });
 
 // Ruta raíz
 app.get('/', (req, res) => {
   res.json({ 
-    message: '🚀 Barbería Elite API - Bienvenido a PRODUCCIÓN',
-    version: '1.0.0',
-    status: 'Operacional'
+    message: '🚀 Barbería Elite API - Bienvenido a RENDER',
+    version: '2.0.0',
+    status: 'Operacional',
+    database: dbInitialized ? 'Conectada' : 'Inicializando'
   });
 });
 
@@ -102,7 +108,7 @@ app.use('*', (req, res) => {
   res.status(404).json({ error: 'Ruta no encontrada' });
 });
 
-// Manejo global de errores (NO revelar detalles en producción)
+// Manejo global de errores
 app.use((error, req, res, next) => {
   console.error('Error global:', error);
   
@@ -110,7 +116,10 @@ app.use((error, req, res, next) => {
   
   res.status(500).json({ 
     error: 'Error interno del servidor',
-    ...(isProduction ? {} : { message: error.message, stack: error.stack })
+    ...(isProduction ? {} : { 
+      message: error.message,
+      stack: error.stack 
+    })
   });
 });
 
@@ -118,10 +127,11 @@ const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
   console.log('=================================');
-  console.log('🚀 BARBERÍA ELITE - PRODUCCIÓN');
+  console.log('🚀 BARBERÍA ELITE - RENDER');
   console.log('=================================');
   console.log(`📍 Servidor: http://localhost:${PORT}`);
-  console.log(`⚡ Entorno: ${process.env.NODE_ENV}`);
+  console.log(`⚡ Entorno: ${process.env.NODE_ENV || 'development'}`);
   console.log('🛡️  Seguridad: MÁXIMA');
+  console.log('🗄️  Database: PostgreSQL');
   console.log('=================================');
 });

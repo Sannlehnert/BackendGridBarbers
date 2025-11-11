@@ -1,165 +1,117 @@
-const mysql = require('mysql2');
+const { Client } = require('pg');
 require('dotenv').config();
 
 async function initializeDatabase() {
-  let connection;
+  const client = new Client({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
 
   try {
-    console.log('🔧 Inicializando base de datos para PRODUCCIÓN...');
+    await client.connect();
+    console.log('🔧 Conectado a PostgreSQL - Inicializando base de datos...');
 
-    // Conectar sin especificar base de datos
-    connection = mysql.createConnection({
-      host: process.env.DB_HOST,
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      port: process.env.DB_PORT || 3306,
-      multipleStatements: true
-    });
+    // Crear tablas
+    await createTables(client);
 
-    connection.connect(async (err) => {
-      if (err) {
-        console.error('❌ Error conectando al servidor MySQL:', err.message);
-        return;
-      }
+    // Insertar datos mínimos para producción
+    await insertProductionData(client);
 
-      console.log('✅ Conectado al servidor MySQL');
-
-      const dbName = process.env.DB_NAME || 'barberia_prod';
-
-      try {
-        // Crear base de datos si no existe
-        await new Promise((resolve, reject) => {
-          connection.query(`CREATE DATABASE IF NOT EXISTS \`${dbName}\``, (err) => {
-            if (err) reject(err);
-            else resolve();
-          });
-        });
-        console.log(`✅ Base de datos "${dbName}" verificada`);
-
-        // Usar la base de datos
-        await new Promise((resolve, reject) => {
-          connection.query(`USE \`${dbName}\``, (err) => {
-            if (err) reject(err);
-            else resolve();
-          });
-        });
-        console.log(`✅ Usando base de datos "${dbName}"`);
-
-        // Crear tablas
-        await createTables(connection);
-
-        // SOLO EN PRODUCCIÓN: Insertar datos mínimos necesarios
-        if (process.env.NODE_ENV === 'production') {
-          await insertProductionData(connection);
-        } else {
-          await insertSampleData(connection);
-        }
-
-        console.log('🎉 Base de datos inicializada correctamente para PRODUCCIÓN');
-
-      } catch (error) {
-        console.error('❌ Error durante la inicialización:', error.message);
-      } finally {
-        connection.end();
-        console.log('🔌 Conexión cerrada');
-      }
-    });
+    console.log('🎉 Base de datos PostgreSQL inicializada correctamente');
 
   } catch (error) {
-    console.error('❌ Error general:', error.message);
-    if (connection) connection.end();
+    console.error('❌ Error durante la inicialización:', error.message);
+  } finally {
+    await client.end();
   }
 }
 
-async function createTables(connection) {
+async function createTables(client) {
   const tables = [
+    // Tabla barbers
     `CREATE TABLE IF NOT EXISTS barbers (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       name VARCHAR(100) NOT NULL,
       email VARCHAR(100) UNIQUE,
       phone VARCHAR(20),
-      image_url VARCHAR(255) DEFAULT NULL,
+      image_url VARCHAR(255),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
+    // Tabla services
     `CREATE TABLE IF NOT EXISTS services (
-      id INT AUTO_INCREMENT PRIMARY KEY,
+      id SERIAL PRIMARY KEY,
       name VARCHAR(100) NOT NULL,
       description TEXT,
-      duration INT NOT NULL,
+      duration INTEGER NOT NULL,
       price DECIMAL(8,2),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )`,
 
+    // Tabla appointments
     `CREATE TABLE IF NOT EXISTS appointments (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      barber_id INT,
-      service_id INT,
+      id SERIAL PRIMARY KEY,
+      barber_id INTEGER REFERENCES barbers(id) ON DELETE CASCADE,
+      service_id INTEGER REFERENCES services(id) ON DELETE CASCADE,
       customer_name VARCHAR(100) NOT NULL,
       customer_phone VARCHAR(20) NOT NULL,
       customer_email VARCHAR(100),
-      appointment_date DATETIME NOT NULL,
-      duration INT NOT NULL,
-      status ENUM('pending', 'confirmed', 'cancelled') DEFAULT 'pending',
+      appointment_date TIMESTAMP NOT NULL,
+      duration INTEGER NOT NULL,
+      status VARCHAR(20) DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'cancelled')),
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      FOREIGN KEY (barber_id) REFERENCES barbers(id) ON DELETE CASCADE,
-      FOREIGN KEY (service_id) REFERENCES services(id) ON DELETE CASCADE,
-      UNIQUE KEY unique_barber_time (barber_id, appointment_date)
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(barber_id, appointment_date)
     )`
   ];
 
   for (let i = 0; i < tables.length; i++) {
-    await new Promise((resolve, reject) => {
-      connection.query(tables[i], (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-    console.log(`✅ Tabla ${i + 1} creada/verificada`);
+    try {
+      await client.query(tables[i]);
+      console.log(`✅ Tabla ${i + 1} creada/verificada`);
+    } catch (error) {
+      console.error(`❌ Error creando tabla ${i + 1}:`, error.message);
+    }
   }
 }
 
-// DATOS MÍNIMOS PARA PRODUCCIÓN
-async function insertProductionData(connection) {
-  console.log('🚀 Insertando datos mínimos para PRODUCCIÓN...');
+async function insertProductionData(client) {
+  console.log('🚀 Insertando datos mínimos para producción...');
 
   const productionData = [
-    // Solo barberos básicos - SIN DATOS PERSONALES REALES
-    `INSERT IGNORE INTO barbers (id, name, email, phone) VALUES 
-    (1, 'Barbero Principal', 'barbero@barberiaelite.com', '+541100000000')`,
+    // Barberos básicos
+    `INSERT INTO barbers (name, email, phone) 
+     VALUES 
+     ('Carlos Rodríguez', 'carlos@barberiaelite.com', '+541123456780'),
+     ('Miguel Sánchez', 'miguel@barberiaelite.com', '+541123456781')
+     ON CONFLICT (email) DO NOTHING`,
 
     // Servicios básicos
-    `INSERT IGNORE INTO services (id, name, description, duration, price) VALUES 
-    (1, 'Corte Degradé', 'Corte de pelo con desvanecido perfecto', 40, 28000),
-    (2, 'Corte + Barba', 'Corte con degradé y perfilado completo de barba con navaja', 60, 38000),
-    (3, 'Perfilado de Barba', 'Diseño, recorte y delineado de barba a navaja y productos', 25, 18000),
-    (4, 'Corte Base', 'Corte uniforme sin degradé o estilo clásico definido', 30, 25000),
-    (5, 'Global (Coloración Completa)', 'Aplicación de color uniforme en toda la cabeza', 210, 120000),
-    (6, 'Mechas', 'Reflejos, mechas selectivas', 150, 65000)`
+    `INSERT INTO services (name, description, duration, price) 
+     VALUES 
+    ('Corte Degradé', 'Corte de pelo con desvanecido perfecto', 40, 28000),
+    ('Corte + Barba', 'Corte con degradé y perfilado completo de barba con navaja', 60, 38000),
+    ('Perfilado de Barba', 'Diseño, recorte y delineado de barba a navaja y productos', 25, 18000),
+    ('Corte Base', 'Corte uniforme sin degradé o estilo clásico definido', 30, 25000),
+    ('Global (Coloración Completa)', 'Aplicación de color uniforme en toda la cabeza', 210, 120000),
+    ('Mechas', 'Reflejos, mechas selectivas', 150, 65000)
+     ON CONFLICT (name) DO NOTHING`
   ];
 
   for (let i = 0; i < productionData.length; i++) {
-    await new Promise((resolve, reject) => {
-      connection.query(productionData[i], (err, results) => {
-        if (err) {
-          if (err.code === 'ER_DUP_ENTRY') resolve();
-          else reject(err);
-        } else {
-          resolve();
-        }
-      });
-    });
-    console.log(`✅ Datos de producción ${i + 1} insertados`);
+    try {
+      const result = await client.query(productionData[i]);
+      if (result.rowCount > 0) {
+        console.log(`✅ Datos de producción ${i + 1} insertados`);
+      } else {
+        console.log(`✅ Datos de producción ${i + 1} ya existían`);
+      }
+    } catch (error) {
+      console.error(`❌ Error insertando datos ${i + 1}:`, error.message);
+    }
   }
-}
-
-// Mantener datos de muestra solo para desarrollo
-async function insertSampleData(connection) {
-  console.log('💻 Insertando datos de muestra para DESARROLLO...');
-  // ... (tu código original de sample data)
 }
 
 if (require.main === module) {

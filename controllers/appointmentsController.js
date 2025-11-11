@@ -1,4 +1,4 @@
-const pool = require('../config/database');
+const { pool } = require('../config/database');
 
 // Crear nuevo turno
 const createAppointment = async (req, res) => {
@@ -24,109 +24,86 @@ const createAppointment = async (req, res) => {
       return res.status(400).json({ error: 'No se pueden agendar turnos en el pasado' });
     }
 
-    // Validar horario comercial (9:00 - 18:00)
-    const hour = appointmentDate.getHours();
-    const minutes = appointmentDate.getMinutes();
-    if (hour < 9 || hour >= 18 || (hour === 17 && minutes > 30)) {
-      return res.status(400).json({ 
-        error: 'Los turnos deben ser entre 9:00 y 18:00' 
-      });
-    }
-
-    // Validar que sea día laboral (lunes a sábado)
-    const dayOfWeek = appointmentDate.getDay();
-    if (dayOfWeek === 0) { // 0 es domingo
-      return res.status(400).json({ 
-        error: 'No se pueden agendar turnos los domingos' 
-      });
-    }
-
     // Obtener duración del servicio
-    const [service] = await pool.execute(
-      'SELECT duration, name FROM services WHERE id = ?',
+    const serviceResult = await pool.query(
+      'SELECT duration, name FROM services WHERE id = $1',
       [service_id]
     );
     
-    if (service.length === 0) {
+    if (serviceResult.rows.length === 0) {
       return res.status(404).json({ error: 'Servicio no encontrado' });
     }
     
-    const duration = service[0].duration;
-    const serviceName = service[0].name;
+    const duration = serviceResult.rows[0].duration;
+    const serviceName = serviceResult.rows[0].name;
 
     // Obtener información del barbero
-    const [barber] = await pool.execute(
-      'SELECT name FROM barbers WHERE id = ?',
+    const barberResult = await pool.query(
+      'SELECT name FROM barbers WHERE id = $1',
       [barber_id]
     );
 
-    if (barber.length === 0) {
+    if (barberResult.rows.length === 0) {
       return res.status(404).json({ error: 'Barbero no encontrado' });
     }
 
-    const barberName = barber[0].name;
+    const barberName = barberResult.rows[0].name;
 
-    // Verificar disponibilidad - evitar solapamiento
-    const [existingAppointments] = await pool.execute(
+    // Verificar disponibilidad - PostgreSQL
+    const existingAppointments = await pool.query(
       `SELECT id, appointment_date, duration 
        FROM appointments 
-       WHERE barber_id = ? 
-       AND DATE(appointment_date) = DATE(?)
+       WHERE barber_id = $1 
+       AND DATE(appointment_date) = DATE($2)
        AND status != 'cancelled'
        AND (
-         (appointment_date BETWEEN ? AND DATE_ADD(?, INTERVAL ? MINUTE)) OR
-         (DATE_ADD(appointment_date, INTERVAL duration MINUTE) BETWEEN ? AND DATE_ADD(?, INTERVAL ? MINUTE)) OR
-         (? BETWEEN appointment_date AND DATE_ADD(appointment_date, INTERVAL duration MINUTE))
+         (appointment_date BETWEEN $3 AND $3 + INTERVAL '1 minute' * $4) OR
+         (appointment_date + INTERVAL '1 minute' * duration BETWEEN $3 AND $3 + INTERVAL '1 minute' * $4) OR
+         ($3 BETWEEN appointment_date AND appointment_date + INTERVAL '1 minute' * duration)
        )`,
-      [
-        barber_id, 
-        appointment_date,
-        appointment_date, appointment_date, duration,
-        appointment_date, appointment_date, duration,
-        appointment_date
-      ]
+      [barber_id, appointment_date, appointment_date, duration]
     );
     
-    if (existingAppointments.length > 0) {
-      const busyAppointment = existingAppointments[0];
+    if (existingAppointments.rows.length > 0) {
+      const busyAppointment = existingAppointments.rows[0];
       const busyTime = new Date(busyAppointment.appointment_date).toLocaleTimeString('es-ES', {
         hour: '2-digit',
         minute: '2-digit'
       });
       
       return res.status(409).json({ 
-        error: `El barbero no está disponible en ese horario. 
-               Ya hay un turno a las ${busyTime}` 
+        error: `El barbero no está disponible en ese horario. Ya hay un turno a las ${busyTime}` 
       });
     }
 
     // Crear turno
-    const [result] = await pool.execute(
+    const result = await pool.query(
       `INSERT INTO appointments 
        (barber_id, service_id, customer_name, customer_phone, customer_email, appointment_date, duration) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7) 
+       RETURNING *`,
       [barber_id, service_id, customer_name, customer_phone, customer_email, appointment_date, duration]
     );
 
     // Obtener el turno creado con información relacionada
-    const [newAppointment] = await pool.execute(
+    const newAppointment = await pool.query(
       `SELECT a.*, s.name as service_name, s.price, b.name as barber_name
        FROM appointments a
        JOIN services s ON a.service_id = s.id
        JOIN barbers b ON a.barber_id = b.id
-       WHERE a.id = ?`,
-      [result.insertId]
+       WHERE a.id = $1`,
+      [result.rows[0].id]
     );
 
     res.status(201).json({
       message: 'Turno reservado exitosamente',
-      appointment: newAppointment[0]
+      appointment: newAppointment.rows[0]
     });
     
   } catch (error) {
     console.error('Error creating appointment:', error);
     
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === '23505') { // Unique violation
       return res.status(409).json({ 
         error: 'Ya existe un turno para ese barbero en ese horario' 
       });
@@ -150,19 +127,19 @@ const getAppointmentsByDate = async (req, res) => {
       });
     }
 
-    const [appointments] = await pool.execute(
+    const result = await pool.query(
       `SELECT a.*, s.name as service_name, b.name as barber_name 
        FROM appointments a 
        JOIN services s ON a.service_id = s.id 
        JOIN barbers b ON a.barber_id = b.id 
-       WHERE DATE(a.appointment_date) = ? 
-       AND a.barber_id = ?
+       WHERE DATE(a.appointment_date) = $1 
+       AND a.barber_id = $2
        AND a.status != 'cancelled'
        ORDER BY a.appointment_date`,
       [date, barber_id]
     );
     
-    res.json(appointments);
+    res.json(result.rows);
   } catch (error) {
     console.error('Error getting appointments:', error);
     res.status(500).json({ 
@@ -185,25 +162,26 @@ const getAllAppointments = async (req, res) => {
     `;
     
     const params = [];
+    let paramCount = 0;
     
     if (date) {
-      query += ` WHERE DATE(a.appointment_date) = ?`;
+      query += ` WHERE DATE(a.appointment_date) = $${++paramCount}`;
       params.push(date);
       
       if (status) {
-        query += ` AND a.status = ?`;
+        query += ` AND a.status = $${++paramCount}`;
         params.push(status);
       }
     } else if (status) {
-      query += ` WHERE a.status = ?`;
+      query += ` WHERE a.status = $${++paramCount}`;
       params.push(status);
     }
     
     query += ` ORDER BY a.appointment_date DESC`;
     
-    const [appointments] = await pool.execute(query, params);
+    const result = await pool.query(query, params);
     
-    res.json(appointments);
+    res.json(result.rows);
   } catch (error) {
     console.error('Error getting all appointments:', error);
     res.status(500).json({ 
@@ -218,12 +196,12 @@ const cancelAppointment = async (req, res) => {
   const { id } = req.params;
   
   try {
-    const [result] = await pool.execute(
-      'UPDATE appointments SET status = "cancelled" WHERE id = ?',
-      [id]
+    const result = await pool.query(
+      'UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *',
+      ['cancelled', id]
     );
 
-    if (result.affectedRows === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Turno no encontrado' });
     }
     
@@ -242,12 +220,12 @@ const confirmAppointment = async (req, res) => {
   const { id } = req.params;
   
   try {
-    const [result] = await pool.execute(
-      'UPDATE appointments SET status = "confirmed" WHERE id = ?',
-      [id]
+    const result = await pool.query(
+      'UPDATE appointments SET status = $1 WHERE id = $2 RETURNING *',
+      ['confirmed', id]
     );
 
-    if (result.affectedRows === 0) {
+    if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Turno no encontrado' });
     }
     
@@ -266,24 +244,24 @@ const getStats = async (req, res) => {
   try {
     const today = new Date().toISOString().split('T')[0];
     
-    const [todayAppointments] = await pool.execute(
-      `SELECT COUNT(*) as count FROM appointments WHERE DATE(appointment_date) = ? AND status != 'cancelled'`,
+    const todayResult = await pool.query(
+      `SELECT COUNT(*) as count FROM appointments WHERE DATE(appointment_date) = $1 AND status != 'cancelled'`,
       [today]
     );
     
-    const [confirmedAppointments] = await pool.execute(
+    const confirmedResult = await pool.query(
       `SELECT COUNT(*) as count FROM appointments WHERE status = 'confirmed'`
     );
     
-    const [cancelledAppointments] = await pool.execute(
+    const cancelledResult = await pool.query(
       `SELECT COUNT(*) as count FROM appointments WHERE status = 'cancelled'`
     );
     
     res.json({
-      today: todayAppointments[0].count,
-      confirmed: confirmedAppointments[0].count,
-      cancelled: cancelledAppointments[0].count,
-      total: confirmedAppointments[0].count + cancelledAppointments[0].count
+      today: parseInt(todayResult.rows[0].count),
+      confirmed: parseInt(confirmedResult.rows[0].count),
+      cancelled: parseInt(cancelledResult.rows[0].count),
+      total: parseInt(confirmedResult.rows[0].count) + parseInt(cancelledResult.rows[0].count)
     });
   } catch (error) {
     console.error('Error getting stats:', error);
@@ -294,19 +272,6 @@ const getStats = async (req, res) => {
   }
 };
 
-const sendWhatsAppNotification = async (appointment, type) => {
-  // Integración con WhatsApp Business API
-  // Esto es un template - implementar con servicio real como Twilio
-  const messageTemplates = {
-    confirmation: `✅ Tu cita en Grid Barbers está confirmada!\n📅 ${new Date(appointment.appointment_date).toLocaleString('es-ES')}\n💈 ${appointment.barber_name}\n✂️ ${appointment.service_name}`,
-    reminder: `⏰ Recordatorio: Tu cita es mañana a las ${new Date(appointment.appointment_date).toLocaleTimeString('es-ES', {hour: '2-digit', minute:'2-digit'})}`
-  };
-  
-  console.log('WhatsApp enviado:', messageTemplates[type]);
-  // Implementar envío real aquí
-};
-
-// Exportar todas las funciones
 module.exports = {
   createAppointment,
   getAppointmentsByDate,
