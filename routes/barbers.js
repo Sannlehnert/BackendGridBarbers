@@ -1,8 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const barbersController = require('../../controllers/barbersController');
-const { adminAuth } = require('../../controllers/authController');
-const upload = require('../../middleware/upload');
+const barbersController = require('../controllers/barbersController');
+const { adminAuth } = require('../controllers/authController');
+const upload = require('../middleware/upload');
 
 // GET /api/barbers - Obtener todos los barberos (público)
 router.get('/', barbersController.getAllBarbers);

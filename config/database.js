@@ -1,20 +1,36 @@
 const { Pool } = require('pg');
+require('dotenv').config();
 
-// Vercel Postgres automáticamente proporciona DATABASE_URL
+// Configuración para PostgreSQL
 const pool = new Pool({
-  connectionString: process.env.POSTGRES_URL || process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  max: 20,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 2000,
 });
 
+// Función para verificar conexión
 const testConnection = async () => {
+  let client;
   try {
-    const client = await pool.connect();
-    console.log('✅ Conectado a Vercel Postgres');
-    client.release();
+    client = await pool.connect();
+    console.log('✅ Conectado a PostgreSQL en Render');
+    
+    // Verificar tablas
+    const result = await client.query(`
+      SELECT table_name 
+      FROM information_schema.tables 
+      WHERE table_schema = 'public'
+    `);
+    
+    console.log(`📊 Tablas existentes: ${result.rows.length}`);
     return true;
   } catch (error) {
-    console.error('❌ Error PostgreSQL:', error.message);
+    console.error('❌ Error conectando a PostgreSQL:', error.message);
     return false;
+  } finally {
+    if (client) client.release();
   }
 };
 

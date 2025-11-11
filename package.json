@@ -19,7 +19,8 @@
     "helmet": "^6.1.5",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
-    "pg": "^8.16.3"
+    "pg": "^8.16.3",
+    "@vercel/node": "^2.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
