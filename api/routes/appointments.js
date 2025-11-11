@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const appointmentsController = require('../controllers/appointmentsController');
+const appointmentsController = require('../../controllers/appointmentsController');
 
 // GET /api/appointments - Obtener turnos por fecha y barbero
 router.get('/', appointmentsController.getAppointmentsByDate);

@@ -75,10 +75,10 @@ const initializeDatabaseWithRetry = async () => {
 setTimeout(initializeDatabaseWithRetry, 1000);
 
 // Routes
-app.use('/api/auth', require('./routes/auth'));
-app.use('/api/barbers', require('./routes/barbers'));
-app.use('/api/services', require('./routes/services'));
-app.use('/api/appointments', require('./routes/appointments'));
+app.use('/api/auth', require('./api/routes/auth'));
+app.use('/api/barbers', require('./api/routes/barbers'));
+app.use('/api/services', require('./api/routes/services'));
+app.use('/api/appointments', require('./api/routes/appointments'));
 
 // Analytics route
 app.get('/api/analytics/dashboard', require('./controllers/analyticController').getDashboardStats);
