@@ -38,7 +38,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Servir archivos estáticos (para imágenes subidas)
+// Servir archivos estáticos
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // Inicialización segura de base de datos
@@ -80,6 +80,9 @@ app.use('/api/barbers', require('./routes/barbers'));
 app.use('/api/services', require('./routes/services'));
 app.use('/api/appointments', require('./routes/appointments'));
 
+// Analytics route
+app.get('/api/analytics/dashboard', require('./controllers/analyticController').getDashboardStats);
+
 // Ruta de salud mejorada
 app.get('/api/health', (req, res) => {
   res.json({ 
@@ -101,6 +104,24 @@ app.get('/', (req, res) => {
     status: 'Operacional',
     database: dbInitialized ? 'Conectada' : 'Inicializando'
   });
+});
+
+// Test database route
+app.get('/api/test-db', async (req, res) => {
+  try {
+    const { pool } = require('./config/database');
+    const result = await pool.query('SELECT NOW() as current_time');
+    res.json({ 
+      database: 'PostgreSQL conectado correctamente',
+      current_time: result.rows[0].current_time,
+      initialized: dbInitialized
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Error conectando a PostgreSQL',
+      message: error.message 
+    });
+  }
 });
 
 // Manejo de rutas no encontradas

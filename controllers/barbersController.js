@@ -1,6 +1,4 @@
 const { pool } = require('../config/database');
-const fs = require('fs');
-const path = require('path');
 
 // Obtener todos los barberos
 const getAllBarbers = async (req, res) => {
@@ -16,7 +14,7 @@ const getAllBarbers = async (req, res) => {
     console.error('Error getting barbers:', error.message);
     
     // Si la tabla no existe, devolver array vacío
-    if (error.code === '42P01') { // PostgreSQL table doesn't exist
+    if (error.code === '42P01') {
       console.log('Tabla barbers no existe todavía, devolviendo array vacío');
       return res.json([]);
     }
@@ -82,7 +80,7 @@ const createBarber = async (req, res) => {
   } catch (error) {
     console.error('Error creating barber:', error);
     
-    if (error.code === '23505') { // Violación de unique constraint
+    if (error.code === '23505') {
       return res.status(409).json({ error: 'El email ya está en uso' });
     }
 
@@ -99,7 +97,6 @@ const updateBarber = async (req, res) => {
     const { id } = req.params;
     const { name, email, phone } = req.body;
 
-    // Manejo de imagen (simplificado para Render - usar Cloudinary después)
     let image_url = null;
     if (req.file) {
       image_url = '/uploads/barbers/' + req.file.filename;

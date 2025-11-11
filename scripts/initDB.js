@@ -85,7 +85,8 @@ async function insertProductionData(client) {
     `INSERT INTO barbers (name, email, phone) 
      VALUES 
      ('Carlos Rodríguez', 'carlos@barberiaelite.com', '+541123456780'),
-     ('Miguel Sánchez', 'miguel@barberiaelite.com', '+541123456781')
+     ('Miguel Sánchez', 'miguel@barberiaelite.com', '+541123456781'),
+     ('Ana Martínez', 'ana@barberiaelite.com', '+541123456782')
      ON CONFLICT (email) DO NOTHING`,
 
     // Servicios básicos

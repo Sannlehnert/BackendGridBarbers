@@ -5,23 +5,37 @@ const createAppointment = async (req, res) => {
   const { barber_id, service_id, customer_name, customer_phone, customer_email, appointment_date } = req.body;
   
   try {
-    // Validaciones básicas
     if (!barber_id || !service_id || !customer_name || !customer_phone || !appointment_date) {
       return res.status(400).json({ 
         error: 'Barbero, servicio, nombre, teléfono y fecha son obligatorios' 
       });
     }
 
-    // Validar formato de fecha
     const appointmentDate = new Date(appointment_date);
     if (isNaN(appointmentDate.getTime())) {
       return res.status(400).json({ error: 'Fecha inválida' });
     }
 
-    // Validar que la fecha no sea en el pasado
     const now = new Date();
     if (appointmentDate < now) {
       return res.status(400).json({ error: 'No se pueden agendar turnos en el pasado' });
+    }
+
+    // Validar horario comercial (9:00 - 18:00)
+    const hour = appointmentDate.getHours();
+    const minutes = appointmentDate.getMinutes();
+    if (hour < 9 || hour >= 18 || (hour === 17 && minutes > 30)) {
+      return res.status(400).json({ 
+        error: 'Los turnos deben ser entre 9:00 y 18:00' 
+      });
+    }
+
+    // Validar que sea día laboral (lunes a sábado)
+    const dayOfWeek = appointmentDate.getDay();
+    if (dayOfWeek === 0) {
+      return res.status(400).json({ 
+        error: 'No se pueden agendar turnos los domingos' 
+      });
     }
 
     // Obtener duración del servicio
@@ -50,22 +64,21 @@ const createAppointment = async (req, res) => {
     const barberName = barberResult.rows[0].name;
 
     // Verificar disponibilidad - PostgreSQL
-    const existingAppointments = await pool.query(
+    const existingResult = await pool.query(
       `SELECT id, appointment_date, duration 
        FROM appointments 
        WHERE barber_id = $1 
        AND DATE(appointment_date) = DATE($2)
        AND status != 'cancelled'
        AND (
-         (appointment_date BETWEEN $3 AND $3 + INTERVAL '1 minute' * $4) OR
-         (appointment_date + INTERVAL '1 minute' * duration BETWEEN $3 AND $3 + INTERVAL '1 minute' * $4) OR
-         ($3 BETWEEN appointment_date AND appointment_date + INTERVAL '1 minute' * duration)
+         (appointment_date, appointment_date + INTERVAL '1 minute' * duration) 
+         OVERLAPS ($3, $3 + INTERVAL '1 minute' * $4)
        )`,
       [barber_id, appointment_date, appointment_date, duration]
     );
     
-    if (existingAppointments.rows.length > 0) {
-      const busyAppointment = existingAppointments.rows[0];
+    if (existingResult.rows.length > 0) {
+      const busyAppointment = existingResult.rows[0];
       const busyTime = new Date(busyAppointment.appointment_date).toLocaleTimeString('es-ES', {
         hour: '2-digit',
         minute: '2-digit'
@@ -103,7 +116,7 @@ const createAppointment = async (req, res) => {
   } catch (error) {
     console.error('Error creating appointment:', error);
     
-    if (error.code === '23505') { // Unique violation
+    if (error.code === '23505') {
       return res.status(409).json({ 
         error: 'Ya existe un turno para ese barbero en ese horario' 
       });

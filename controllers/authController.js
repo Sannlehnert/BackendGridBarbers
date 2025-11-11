@@ -1,13 +1,11 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const pool = require('../config/database').pool;
 
 // Configuración SEGURA con hash de contraseñas
 const ADMIN_USERS = [
   {
     id: 1,
     username: process.env.ADMIN_USERNAME || 'admin',
-    // Contraseña hasheada - cambia esto en producción!
     passwordHash: bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'Admin123!', 12),
     name: 'Administrador Principal'
   }
@@ -29,7 +27,6 @@ const login = async (req, res) => {
     // Buscar usuario
     const user = ADMIN_USERS.find(u => u.username === username);
     if (!user) {
-      // Mismo mensaje para no revelar información
       return res.status(401).json({ error: 'Credenciales inválidas' });
     }
 
@@ -49,7 +46,7 @@ const login = async (req, res) => {
       },
       process.env.JWT_SECRET,
       { 
-        expiresIn: '8h', // Token de corta duración
+        expiresIn: '8h',
         issuer: 'barberia-elite-api',
         audience: 'barberia-elite-app'
       }
@@ -67,7 +64,6 @@ const login = async (req, res) => {
 
   } catch (error) {
     console.error('Error en login:', error);
-    // No revelar detalles del error en producción
     res.status(500).json({ error: 'Error en el servidor' });
   }
 };
