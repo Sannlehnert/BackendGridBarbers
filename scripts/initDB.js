@@ -97,8 +97,7 @@ async function insertProductionData(client) {
     ('Perfilado de Barba', 'Diseño, recorte y delineado de barba a navaja y productos', 25, 18000),
     ('Corte Base', 'Corte uniforme sin degradé o estilo clásico definido', 30, 25000),
     ('Global (Coloración Completa)', 'Aplicación de color uniforme en toda la cabeza', 210, 120000),
-    ('Mechas', 'Reflejos, mechas selectivas', 150, 65000)
-     ON CONFLICT (name) DO NOTHING`
+    ('Mechas', 'Reflejos, mechas selectivas', 150, 65000)`
   ];
 
   for (let i = 0; i < productionData.length; i++) {
