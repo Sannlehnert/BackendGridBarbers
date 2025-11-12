@@ -4,8 +4,8 @@ const cors = require('cors');
 
 // Rate Limiting para prevenir ataques
 const apiLimiter = rateLimit({
-  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000,
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100,
+  windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutos
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // límite por IP
   message: {
     error: 'Demasiadas solicitudes desde esta IP, intenta nuevamente en 15 minutos.'
   },
@@ -15,8 +15,8 @@ const apiLimiter = rateLimit({
 
 // Rate Limiting más estricto para auth
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
+  windowMs: 15 * 60 * 1000, // 15 minutos
+  max: 5, // solo 5 intentos de login
   message: {
     error: 'Demasiados intentos de login, intenta nuevamente en 15 minutos.'
   }
@@ -29,6 +29,7 @@ const corsOptions = {
       process.env.ALLOWED_ORIGINS.split(',') : 
       ['http://localhost:5173'];
     
+    // Permitir requests sin origin (como mobile apps o curl)
     if (!origin) return callback(null, true);
     
     if (allowedOrigins.indexOf(origin) === -1) {
@@ -58,8 +59,10 @@ const helmetConfig = helmet({
 
 // Sanitización de datos
 const sanitizeInput = (req, res, next) => {
+  // Función recursiva para sanitizar objetos y arrays
   const sanitize = (data) => {
     if (typeof data === 'string') {
+      // Remover caracteres potencialmente peligrosos
       return data
         .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
         .replace(/javascript:/gi, '')

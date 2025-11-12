@@ -1,19 +1,20 @@
-const { pool } = require('../config/database');
+const pool = require('../config/database');
 
 // Obtener todos los servicios
 const getAllServices = async (req, res) => {
   try {
-    const result = await pool.query(
+    const [services] = await pool.execute(
       `SELECT id, name, description, duration, price, created_at 
        FROM services 
        ORDER BY name`
     );
 
-    res.json(result.rows);
+    res.json(services);
   } catch (error) {
     console.error('Error getting services:', error.message);
     
-    if (error.code === '42P01') {
+    // Si la tabla no existe, devolver array vacío en lugar de error
+    if (error.code === 'ER_NO_SUCH_TABLE') {
       console.log('Tabla services no existe todavía, devolviendo array vacío');
       return res.json([]);
     }
@@ -30,18 +31,18 @@ const getServiceById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const result = await pool.query(
+    const [services] = await pool.execute(
       `SELECT id, name, description, duration, price, created_at 
        FROM services 
-       WHERE id = $1`,
+       WHERE id = ?`,
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (services.length === 0) {
       return res.status(404).json({ error: 'Servicio no encontrado' });
     }
 
-    res.json(result.rows[0]);
+    res.json(services[0]);
   } catch (error) {
     console.error('Error getting service:', error);
     res.status(500).json({ 
@@ -56,22 +57,23 @@ const createService = async (req, res) => {
   try {
     const { name, description, duration, price } = req.body;
 
+    // Validaciones básicas
     if (!name || !duration || !price) {
       return res.status(400).json({ 
         error: 'Nombre, duración y precio son obligatorios' 
       });
     }
 
-    const result = await pool.query(
+    const [result] = await pool.execute(
       `INSERT INTO services (name, description, duration, price) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING *`,
+       VALUES (?, ?, ?, ?)`,
       [name, description, duration, price]
     );
 
     res.status(201).json({
+      id: result.insertId,
       message: 'Servicio creado exitosamente',
-      service: result.rows[0]
+      service: { name, description, duration, price }
     });
   } catch (error) {
     console.error('Error creating service:', error);
@@ -88,22 +90,20 @@ const updateService = async (req, res) => {
     const { id } = req.params;
     const { name, description, duration, price } = req.body;
 
-    const result = await pool.query(
+    const [result] = await pool.execute(
       `UPDATE services 
-       SET name = $1, description = $2, duration = $3, price = $4,
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5 
-       RETURNING *`,
+       SET name = ?, description = ?, duration = ?, price = ? 
+       WHERE id = ?`,
       [name, description, duration, price, id]
     );
 
-    if (result.rows.length === 0) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Servicio no encontrado' });
     }
 
     res.json({ 
       message: 'Servicio actualizado exitosamente',
-      service: result.rows[0]
+      service: { id, name, description, duration, price }
     });
   } catch (error) {
     console.error('Error updating service:', error);
@@ -119,12 +119,12 @@ const deleteService = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      'DELETE FROM services WHERE id = $1 RETURNING *',
+    const [result] = await pool.execute(
+      'DELETE FROM services WHERE id = ?',
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Servicio no encontrado' });
     }
 
@@ -138,6 +138,7 @@ const deleteService = async (req, res) => {
   }
 };
 
+// Exportar todas las funciones
 module.exports = {
   getAllServices,
   getServiceById,

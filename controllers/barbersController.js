@@ -1,20 +1,22 @@
-const { pool } = require('../config/database');
+const pool = require('../config/database');
+const fs = require('fs');
+const path = require('path');
 
 // Obtener todos los barberos
 const getAllBarbers = async (req, res) => {
   try {
-    const result = await pool.query(
+    const [barbers] = await pool.execute(
       `SELECT id, name, email, phone, image_url, created_at 
        FROM barbers 
        ORDER BY name`
     );
 
-    res.json(result.rows);
+    res.json(barbers);
   } catch (error) {
     console.error('Error getting barbers:', error.message);
     
-    // Si la tabla no existe, devolver array vacío
-    if (error.code === '42P01') {
+    // Si la tabla no existe, devolver array vacío en lugar de error
+    if (error.code === 'ER_NO_SUCH_TABLE') {
       console.log('Tabla barbers no existe todavía, devolviendo array vacío');
       return res.json([]);
     }
@@ -31,18 +33,18 @@ const getBarberById = async (req, res) => {
   try {
     const { id } = req.params;
     
-    const result = await pool.query(
+    const [barbers] = await pool.execute(
       `SELECT id, name, email, phone, image_url, created_at 
        FROM barbers 
-       WHERE id = $1`,
+       WHERE id = ?`,
       [id]
     );
 
-    if (result.rows.length === 0) {
+    if (barbers.length === 0) {
       return res.status(404).json({ error: 'Barbero no encontrado' });
     }
 
-    res.json(result.rows[0]);
+    res.json(barbers[0]);
   } catch (error) {
     console.error('Error getting barber:', error);
     res.status(500).json({ 
@@ -52,35 +54,37 @@ const getBarberById = async (req, res) => {
   }
 };
 
-// Crear un nuevo barbero
+// Crear un nuevo barbero CON IMAGEN
 const createBarber = async (req, res) => {
   try {
     const { name, email, phone } = req.body;
 
+    // Validaciones básicas
     if (!name) {
       return res.status(400).json({ error: 'El nombre es obligatorio' });
     }
 
+    // Manejar la imagen si se subió
     let image_url = null;
     if (req.file) {
       image_url = '/uploads/barbers/' + req.file.filename;
     }
 
-    const result = await pool.query(
+    const [result] = await pool.execute(
       `INSERT INTO barbers (name, email, phone, image_url) 
-       VALUES ($1, $2, $3, $4) 
-       RETURNING *`,
+       VALUES (?, ?, ?, ?)`,
       [name, email, phone, image_url]
     );
 
     res.status(201).json({
+      id: result.insertId,
       message: 'Barbero creado exitosamente',
-      barber: result.rows[0]
+      barber: { name, email, phone, image_url }
     });
   } catch (error) {
     console.error('Error creating barber:', error);
     
-    if (error.code === '23505') {
+    if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'El email ya está en uso' });
     }
 
@@ -91,39 +95,55 @@ const createBarber = async (req, res) => {
   }
 };
 
-// Actualizar un barbero
+// Actualizar un barbero CON IMAGEN
 const updateBarber = async (req, res) => {
   try {
     const { id } = req.params;
     const { name, email, phone } = req.body;
 
+    // Obtener barbero actual para eliminar imagen anterior si es necesario
+    let oldImageUrl = null;
+    if (req.file) {
+      const [currentBarber] = await pool.execute(
+        'SELECT image_url FROM barbers WHERE id = ?',
+        [id]
+      );
+      oldImageUrl = currentBarber[0]?.image_url;
+    }
+
+    // Manejar la nueva imagen
     let image_url = null;
     if (req.file) {
       image_url = '/uploads/barbers/' + req.file.filename;
+      
+      // Eliminar imagen anterior si existe
+      if (oldImageUrl) {
+        const oldImagePath = path.join(__dirname, '..', oldImageUrl);
+        if (fs.existsSync(oldImagePath)) {
+          fs.unlinkSync(oldImagePath);
+        }
+      }
     }
 
-    const result = await pool.query(
+    const [result] = await pool.execute(
       `UPDATE barbers 
-       SET name = $1, email = $2, phone = $3, 
-           image_url = COALESCE($4, image_url),
-           updated_at = CURRENT_TIMESTAMP
-       WHERE id = $5 
-       RETURNING *`,
+       SET name = ?, email = ?, phone = ?, image_url = COALESCE(?, image_url)
+       WHERE id = ?`,
       [name, email, phone, image_url, id]
     );
 
-    if (result.rows.length === 0) {
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Barbero no encontrado' });
     }
 
     res.json({ 
       message: 'Barbero actualizado exitosamente',
-      barber: result.rows[0]
+      barber: { id, name, email, phone, image_url: image_url || oldImageUrl }
     });
   } catch (error) {
     console.error('Error updating barber:', error);
     
-    if (error.code === '23505') {
+    if (error.code === 'ER_DUP_ENTRY') {
       return res.status(409).json({ error: 'El email ya está en uso' });
     }
 
@@ -134,18 +154,32 @@ const updateBarber = async (req, res) => {
   }
 };
 
-// Eliminar un barbero
+// Eliminar un barbero Y SU IMAGEN
 const deleteBarber = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const result = await pool.query(
-      'DELETE FROM barbers WHERE id = $1 RETURNING *',
+    // Obtener barbero para eliminar su imagen
+    const [barber] = await pool.execute(
+      'SELECT image_url FROM barbers WHERE id = ?',
       [id]
     );
 
-    if (result.rows.length === 0) {
+    const [result] = await pool.execute(
+      'DELETE FROM barbers WHERE id = ?',
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Barbero no encontrado' });
+    }
+
+    // Eliminar imagen si existe
+    if (barber[0]?.image_url) {
+      const imagePath = path.join(__dirname, '..', barber[0].image_url);
+      if (fs.existsSync(imagePath)) {
+        fs.unlinkSync(imagePath);
+      }
     }
 
     res.json({ message: 'Barbero eliminado exitosamente' });
@@ -158,6 +192,7 @@ const deleteBarber = async (req, res) => {
   }
 };
 
+// Exportar todas las funciones CORREGIDAS
 module.exports = {
   getAllBarbers,
   getBarberById,
